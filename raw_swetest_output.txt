@@ -1,0 +1,33 @@
+Sun              256.9567755
+Moon             306.5621105
+Mercury          272.1112882
+Venus            282.6268593
+Mars             226.2149680
+Jupiter          71.5557729
+Saturn           262.0065431
+Uranus           252.1478336
+Neptune          258.4055644
+Pluto            203.4629867
+mean Node        294.8232662
+true Node        293.2415223
+mean Apogee      192.8144674
+house  1         346.5642214
+house  2         19.7787003
+house  3         48.1321007
+house  4         74.1132535
+house  5         100.9204779
+house  6         131.4571135
+house  7         166.5642214
+house  8         199.7787003
+house  9         228.1321007
+house 10         254.1132535
+house 11         280.9204779
+house 12         311.4571135
+Ascendant        346.5642214
+MC               254.1132535
+ARMC             278.4235919
+Vertex           159.5765662
+equat. Asc.      345.5452114
+co-Asc. W.Koch   344.7101980
+co-Asc Munkasey  146.0588188
+Polar Asc.       164.7101980
