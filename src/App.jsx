@@ -140,7 +140,8 @@ const App = () => {
 
     const fetchTimeline = async () => {
         setLoading(true);
-        const backendUrl = import.meta.env.VITE_BACKEND_URL || './kp_api.php';
+        const isProd = import.meta.env.PROD;
+        const backendUrl = isProd ? './kp_api.php' : (import.meta.env.VITE_BACKEND_URL || './kp_api.php');
         try {
             const res = await axios.post(backendUrl, {
                 year: parseInt(form.year),
