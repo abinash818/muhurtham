@@ -5,8 +5,18 @@ header("Access-Control-Allow-Headers: Content-Type");
 header("Content-Type: application/json");
 
 // Suppress errors for clean JSON output
-error_reporting(0);
-ini_set('display_errors', 0);
+// error_reporting(0);
+// ini_set('display_errors', 0);
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+ini_set('log_errors', 1);
+ini_set('error_log', dirname(__FILE__) . '/error_log.txt');
+date_default_timezone_set('UTC');
+
+function logDebug($msg) {
+    file_put_contents(dirname(__FILE__) . '/error_log.txt', "[" . date('Y-m-d H:i:s') . "] " . $msg . "\n", FILE_APPEND);
+}
+logDebug("API Request Started");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit(0);
@@ -101,23 +111,34 @@ function getAscendant($utcTimestamp, $lat, $lon, $sidMode) {
 // This is acceptable.
 
 function getAscendantFromCache($utcTimestamp, &$chartsCache, $startTimestamp) {
+    if (empty($chartsCache)) {
+        logDebug("ERROR: chartsCache is empty in getAscendantFromCache");
+        return 0;
+    }
     // Index = floor((t - start) / 60)
     $offset = $utcTimestamp - $startTimestamp;
-    $idx = floor($offset / 60);
-    $fraction = ($offset % 60) / 60;
+    $idx = (int)floor($offset / 60);
+    $fraction = fmod($offset, 60) / 60;
     
     // Safety
     if ($idx < 0) $idx = 0;
-    if ($idx >= count($chartsCache) - 1) return $chartsCache[count($chartsCache)-1]['houses'][1];
+    $maxIdx = count($chartsCache) - 1;
+    if ($idx >= $maxIdx) return $chartsCache[$maxIdx]['houses'][1] ?? 0;
     
-    $asc1 = $chartsCache[$idx]['houses'][1];
-    $asc2 = $chartsCache[$idx+1]['houses'][1];
+    $c1 = $chartsCache[$idx] ?? null;
+    $c2 = $chartsCache[$idx+1] ?? null;
+    
+    if (!$c1 || !$c2) return 0;
+    
+    $asc1 = $c1['houses'][1];
+    $asc2 = $c2['houses'][1];
     
     // Handle wrap around 360
     if ($asc2 < $asc1 && ($asc1 - $asc2) > 180) $asc2 += 360;
     
     $asc = $asc1 + ($asc2 - $asc1) * $fraction;
     if ($asc >= 360) $asc -= 360;
+    if ($asc < 0) $asc += 360;
     
     return $asc;
 }
@@ -168,8 +189,10 @@ function validateTimeline(&$timeline) {
 }
 
 // Get Input
-$rawInput = @file_get_contents("php://input");
-$input = json_decode($rawInput, true);
+try {
+    $rawInput = @file_get_contents("php://input");
+    logDebug("Raw Input: " . $rawInput);
+    $input = json_decode($rawInput, true);
 if (!$input) {
     $input = $_GET;
 }
@@ -185,8 +208,12 @@ $tz = $input['timezone'] ?? 5.5;
 $ayanamsa = $input['ayanamsa'] ?? 'KP';
 
 $sidMode = ($ayanamsa === 'KP' || $ayanamsa === 'KP Straight') ? 5 : 1;
+
+// Force UTC interpretation of the local date/time string provided by user.
+// Since we set default timezone to UTC above, strtotime will return the UTC epoch for this wall-clock time.
+// Then we subtract the timezone to get the actual UTC time.
 $localTimeStr = "$year-$month-$day $hour:$minute:00";
-$startTimestamp = strtotime($localTimeStr) - ($tz * 3600);
+$startTimestamp = (float)strtotime($localTimeStr) - (float)($tz * 3600);
 $endTimestamp = $startTimestamp + (24 * 3600); 
 
 $timeline = [];
@@ -313,8 +340,8 @@ while ($currentTime < $endTimestamp && $stepCount < $maxSteps) {
         'nakLord' => $lords['nakLord'], // Ensure this is present
         'subLord' => $lords['subLord'],
         'longitude' => $dms,
-        'from' => date('Y-m-d\TH:i:s.000\Z', $entryStart + ($tz * 3600)),
-        'to' => date('Y-m-d\TH:i:s.000\Z', $finalEndTime + ($tz * 3600)),
+        'from' => date('Y-m-d\TH:i:s.000\Z', $entryStart),
+        'to' => date('Y-m-d\TH:i:s.000\Z', $finalEndTime),
         'durationSeconds' => $duration,
         'formattedDuration' => gmdate("i\m s\s", $duration)
     ];
@@ -341,8 +368,16 @@ while ($currentTime < $endTimestamp && $stepCount < $maxSteps) {
 // Run Validation
 validateTimeline($timeline);
 
-echo json_encode([
-    "timeline" => $timeline,
-    "bestTime" => $bestTime,
-    "input" => $input
-]);
+    echo json_encode([
+        "timeline" => $timeline,
+        "bestTime" => $bestTime,
+        "chart" => $chartsCache[0] ?? null,
+        "input" => $input
+    ]);
+    logDebug("API Request Successful. Steps: " . count($timeline));
+
+} catch (Exception $e) {
+    logDebug("FATAL ERROR: " . $e->getMessage());
+    http_response_code(500);
+    echo json_encode(["error" => $e->getMessage()]);
+}

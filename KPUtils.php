@@ -125,187 +125,8 @@ class KPUtils {
         return fmod($endDegree, 360);
     }
 
-    /**
-     * Convert decimal degrees to DMS string (DDD° MM' SS").
-     */
-    public static function decimalToDms($decimal) {
-        $vars = explode(".", $decimal);
-        $deg = $vars[0];
-        $tempma = "0." . ($vars[1] ?? 0);
-        $tempma = $tempma * 3600;
-        $min = floor($tempma / 60);
-        $sec = round($tempma - ($min * 60));
 
-        return sprintf("%d° %02d' %02d\"", $deg, $min, $sec);
-    }
-
-    /**
-     * Get Full Chart (Planets + Houses)
-     */
-    /**
-     * Get Full Chart (Planets + Houses)
-     */
-    public static function getKPChart($utcTimestamp, $lat, $lon, $sidMode, $swetestPath, $ephePath) {
-        // Optimized: If we have a cache, use it.
-        // But since this is PHP, request-scope cache is empty unless we generate it.
-        // For now, we keep this for single calls, but we will add a batch method.
-        
-        // Support sub-second precision
-        $d = getdate((int)$utcTimestamp);
-        $frac = $utcTimestamp - (int)$utcTimestamp;
-        $seconds = $d['seconds'] + $frac;
-        
-        $dateStr = sprintf("%02d.%02d.%04d", $d['mday'], $d['mon'], $d['year']);
-        $timeStr = sprintf("%02d:%02d:%02.4f", $d['hours'], $d['minutes'], $seconds);
-        $epheDir = rtrim($ephePath, DIRECTORY_SEPARATOR);
-        
-        // -p0123456t (Sun..Sat + Node)
-        $cmd = "$swetestPath -edir\"$epheDir\" -b$dateStr -ut$timeStr -geopos$lon,$lat,0 -house -sid$sidMode -fPl -p0123456t -head";
-        
-        $res = shell_exec($cmd . " 2>&1");
-        if (!$res) return null;
-        
-        return self::parseSwetestOutput($res);
-    }
     
-    /**
-     * Batch Fetch Charts for the whole day (1-minute resolution)
-     * Returns an array of charts indexed by relative minute (0 to 1439...)
-     */
-    public static function getBatchKPChart($startTimestamp, $durationMinutes, $lat, $lon, $sidMode, $swetestPath, $ephePath) {
-        $d = getdate((int)$startTimestamp);
-        $dateStr = sprintf("%02d.%02d.%04d", $d['mday'], $d['mon'], $d['year']);
-        
-        $timeStr = sprintf("%02d:%02d", $d['hours'], $d['minutes']); 
-        $epheDir = rtrim($ephePath, DIRECTORY_SEPARATOR);
-        
-        // Step 1 minute = 1 / 1440 days
-        $stepInDays = 0.00069444444; 
-        
-        // Count: Duration
-        $count = $durationMinutes + 10;
-        
-        // Run swetest
-        $cmd = "$swetestPath -edir\"$epheDir\" -b$dateStr -ut$timeStr -geopos$lon,$lat,0 -house -sid$sidMode -fPl -p0123456t -n$count -s$stepInDays -head";
-        
-        $res = shell_exec($cmd . " 2>&1");
-        if (!$res) return [];
-        
-        $charts = [];
-        $lines = explode("\n", $res);
-        
-        $currentChart = ['planets' => [], 'houses' => []];
-        $isCapturing = false;
-        $entryCount = 0;
-        
-        foreach ($lines as $line) {
-            $line = trim($line);
-            if (empty($line)) continue;
-            
-            $parts = preg_split('/\s+/', $line);
-            $name = $parts[0];
-            
-            if ($name === 'Sun') {
-                 if ($isCapturing) {
-                     if (isset($currentChart['planets']['Rahu'])) {
-                         $ketu = fmod($currentChart['planets']['Rahu'] + 180, 360);
-                         $currentChart['planets']['Ketu'] = $ketu;
-                     }
-                     // Save chart for the 1-minute block
-                     $charts[$entryCount] = $currentChart;
-                     $entryCount++;
-                     $currentChart = ['planets' => [], 'houses' => []];
-                 }
-                 $isCapturing = true;
-            }
-            
-            if (!$isCapturing) continue;
-            if (count($parts) < 2) continue;
-            
-            $val = floatval($parts[1]);
-            
-            if ($name === 'true') { $name = 'Rahu'; $val = floatval($parts[2]); }
-            
-            if ($name === 'house') {
-                $houseNum = intval($parts[1]);
-                $val = floatval($parts[2]);
-                $currentChart['houses'][$houseNum] = $val;
-            } else if (in_array($name, ['Sun', 'Moon', 'Mercury', 'Venus', 'Mars', 'Jupiter', 'Saturn', 'Rahu'])) {
-                $currentChart['planets'][$name] = $val;
-            }
-        }
-        
-        if ($isCapturing) {
-             if (isset($currentChart['planets']['Rahu'])) {
-                 $ketu = fmod($currentChart['planets']['Rahu'] + 180, 360);
-                 $currentChart['planets']['Ketu'] = $ketu;
-             }
-             $charts[$entryCount] = $currentChart;
-        }
-        
-        return $charts;
-    }
-    
-    private static function parseSwetestOutput($output) {
-        $planets = [];
-        $houses = [];
-        
-        $lines = explode("\n", $output);
-        foreach ($lines as $line) {
-            $line = trim($line);
-            if (empty($line)) continue;
-            
-            $parts = preg_split('/\s+/', $line);
-            if (count($parts) < 2) continue;
-            
-            $name = $parts[0];
-            $val = floatval($parts[1]);
-            
-            if ($name === 'true') {
-                $name = 'Rahu';
-                $val = floatval($parts[2]);
-            }
-            if ($name === 'house') {
-                $houseNum = intval($parts[1]);
-                $val = floatval($parts[2]);
-                $houses[$houseNum] = $val;
-            } else if (in_array($name, ['Sun', 'Moon', 'Mercury', 'Venus', 'Mars', 'Jupiter', 'Saturn', 'Rahu'])) {
-                $planets[$name] = $val;
-            }
-        }
-        
-        if (isset($planets['Rahu'])) {
-            $ketu = fmod($planets['Rahu'] + 180, 360);
-            $planets['Ketu'] = $ketu;
-        }
-        
-        return ['planets' => $planets, 'houses' => $houses];
-    }
-    
-    /**
-     * Determine House Occupancy
-     */
-    public static function getHouseOccupancy($planetLon, $houses) {
-        // Find which house the planet falls into.
-        // House N starts at Cusp N and ends at Cusp N+1 (or 1 if 12)
-        for ($i = 1; $i <= 12; $i++) {
-            $start = $houses[$i];
-            $next = ($i === 12) ? $houses[1] : $houses[$i+1];
-            
-            // Handle wrap around 360/0
-            if ($next < $start) {
-                // House crosses 0 Aries. e.g. 330 to 30.
-                if ($planetLon >= $start || $planetLon < $next) {
-                    return $i;
-                }
-            } else {
-                if ($planetLon >= $start && $planetLon < $next) {
-                    return $i;
-                }
-            }
-        }
-        return 0; // Should not happen
-    }
     
     /**
      * Calculate Muhurtham Score (Professional Logic)
@@ -592,4 +413,101 @@ class KPUtils {
         return $map[$signIdx % 12];
     }
 
+    public static function getHouseOccupancy($longitude, $houses) {
+        for ($i = 1; $i <= 11; $i++) {
+            $c1 = $houses[$i];
+            $c2 = $houses[$i + 1];
+            if ($c2 < $c1) { // Crosses 360
+                if ($longitude >= $c1 || $longitude < $c2) return $i;
+            } else {
+                if ($longitude >= $c1 && $longitude < $c2) return $i;
+            }
+        }
+        return 12; // Must be in 12th
+    }
+
+    public static function decimalToDms($deg) {
+        $deg = fmod($deg, 360);
+        if ($deg < 0) $deg += 360;
+        
+        $signIdx = floor($deg / 30);
+        $d = $deg - ($signIdx * 30);
+        
+        $degInt = floor($d);
+        $minTotal = ($d - $degInt) * 60;
+        $minInt = floor($minTotal);
+        $sec = ($minTotal - $minInt) * 60;
+        
+        return sprintf("%02d° %02d' %02d\"", $degInt, $minInt, round($sec));
+    }
+
+    public static function getBatchKPChart($startTime, $steps, $lat, $lon, $sidMode, $swetestPath, $epheDir) {
+        $results = [];
+        $epheDir = rtrim($epheDir, DIRECTORY_SEPARATOR);
+        
+        $dateStr = date('d.m.Y', $startTime);
+        $timeStr = date('H:i:s', $startTime);
+        
+        // Step 1 minute. swetest uses seconds or fractional days for -s
+        // -s1m works in some versions, but -s0.00069444444 is safer.
+        // Actually -s1m is supported in newer ones.
+        $cmd = "\"$swetestPath\" -edir\"$epheDir\" -b$dateStr -ut$timeStr -geopos$lon,$lat,0 -house -sid$sidMode -n$steps -s1m -fPl -p0123456t -head";
+        
+        $res = shell_exec($cmd . " 2>&1");
+        if (!$res) return [];
+        
+        $lines = explode("\n", $res);
+        $currentChart = ['houses' => [], 'planets' => []];
+        $chartCount = 0;
+        
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if (empty($line)) continue;
+            
+            $parts = preg_split('/\s+/', $line);
+            if (count($parts) < 2) continue;
+            
+            $name = $parts[0];
+            
+            // New block detection (House 1 or Sun depending on order)
+            if (($name === 'house' && $parts[1] == '1') || ($name === 'Sun' && empty($currentChart['planets']))) {
+                if (!empty($currentChart['houses']) && !empty($currentChart['planets'])) {
+                    // Ketu
+                    if (isset($currentChart['planets']['Rahu'])) {
+                        $currentChart['planets']['Ketu'] = fmod($currentChart['planets']['Rahu'] + 180, 360);
+                    }
+                    $results[] = $currentChart;
+                    $currentChart = ['houses' => [], 'planets' => []];
+                }
+            }
+            
+            if ($name === 'house') {
+                $hIdx = (int)$parts[1];
+                $val = (float)$parts[2];
+                $currentChart['houses'][$hIdx] = $val;
+            } else if ($name === 'true' && isset($parts[2])) {
+                // node (Rahu)
+                $currentChart['planets']['Rahu'] = (float)$parts[2];
+            } else {
+                // Direct Planet names
+                $planetNames = ['Sun', 'Moon', 'Mercury', 'Venus', 'Mars', 'Jupiter', 'Saturn'];
+                foreach ($planetNames as $p) {
+                    if (stripos($name, $p) !== false) {
+                        $currentChart['planets'][$p] = (float)$parts[1];
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // Push last
+        if (!empty($currentChart['houses']) && !empty($currentChart['planets'])) {
+            if (isset($currentChart['planets']['Rahu'])) {
+                $currentChart['planets']['Ketu'] = fmod($currentChart['planets']['Rahu'] + 180, 360);
+            }
+            $results[] = $currentChart;
+        }
+        
+        return $results;
+    }
 }

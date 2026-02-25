@@ -14,7 +14,10 @@ import TimelineIcon from '@mui/icons-material/Timeline';
 import StarsIcon from '@mui/icons-material/Stars';
 import CloseIcon from '@mui/icons-material/Close';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import WbSunnyIcon from '@mui/icons-material/WbSunny';
+import Fab from '@mui/material/Fab';
 import MuhurthamView from './components/MuhurthamView';
+import SouthIndianChart from './components/SouthIndianChart';
 
 // --- THEME ---
 const theme = createTheme({
@@ -104,6 +107,9 @@ const App = () => {
         ayanamsa: 'KP'
     });
 
+    const [chartData, setChartData] = useState(null);
+    const [openChart, setOpenChart] = useState(false);
+
     const calculateTimezone = (long) => {
         const lonNum = parseFloat(long);
         if (isNaN(lonNum)) return 5.5;
@@ -134,7 +140,7 @@ const App = () => {
 
     const fetchTimeline = async () => {
         setLoading(true);
-        const backendUrl = 'http://127.0.0.1:5001/kp_api.php';
+        const backendUrl = import.meta.env.VITE_BACKEND_URL || './kp_api.php';
         try {
             const res = await axios.post(backendUrl, {
                 year: parseInt(form.year),
@@ -147,8 +153,13 @@ const App = () => {
                 timezone: parseFloat(form.tz),
                 ayanamsa: form.ayanamsa
             });
-            setTimeline(res.data.timeline.filter(row => row.durationSeconds >= 5));
-            setBestTime(res.data.bestTime);
+            if (res.data && res.data.timeline) {
+                setTimeline(res.data.timeline.filter(row => row.durationSeconds >= 5));
+                setBestTime(res.data.bestTime);
+                setChartData(res.data.chart);
+            } else {
+                throw new Error("Invalid response from server: timeline data missing");
+            }
         } catch (err) {
             console.error(err);
             alert(`Failed to fetch KP timeline from: ${backendUrl}\nMake sure the backend server is running and accessible.`);
@@ -195,7 +206,8 @@ const App = () => {
             <Box sx={{ p: { xs: 2, md: 4 }, maxWidth: 1200, mx: 'auto' }}>
                 <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
                     <Typography variant="h4" fontWeight="800" sx={{ color: 'primary.main', display: 'flex', alignItems: 'center', gap: 1 }}>
-                        🌌 KP Astrology (கே.பி ஜோதிடம்)
+                        <Box component="img" src="/profile_logo.jpg" sx={{ width: 44, height: 44, borderRadius: '50%', border: '2px solid #2563eb' }} />
+                        KP Astrology (கே.பி ஜோதிடம்)
                     </Typography>
                     <Button
                         variant="outlined"
@@ -518,6 +530,55 @@ const App = () => {
                         </Table>
                     </TableContainer>
                 )}
+
+                {/* South Indian Chart Modal */}
+                <Dialog
+                    open={openChart}
+                    onClose={() => setOpenChart(false)}
+                    maxWidth="sm"
+                    fullWidth
+                    PaperProps={{ sx: { borderRadius: 4, bgcolor: '#f1f5f9' } }}
+                >
+                    <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 0 }}>
+                        <Typography variant="h6" fontWeight="900" color="primary">ஜாதக கட்டம் (Horoscope)</Typography>
+                        <IconButton onClick={() => setOpenChart(false)}><CloseIcon /></IconButton>
+                    </DialogTitle>
+                    <DialogContent sx={{ mt: 2 }}>
+                        {chartData ? (
+                            <SouthIndianChart chartData={chartData} />
+                        ) : (
+                            <Box sx={{ p: 4, textAlign: 'center' }}>
+                                <Typography gutterBottom>Please calculate the timeline first to view the chart.</Typography>
+                                <Button variant="contained" onClick={fetchTimeline}>Calculate Now</Button>
+                            </Box>
+                        )}
+                    </DialogContent>
+                    <DialogActions>
+                        <Button onClick={() => setOpenChart(false)} sx={{ fontWeight: 'bold' }}>Close</Button>
+                    </DialogActions>
+                </Dialog>
+
+                {/* Floating Action Button (Sun Icon) */}
+                <Fab
+                    color="primary"
+                    aria-label="view chart"
+                    onClick={() => setOpenChart(true)}
+                    sx={{
+                        position: 'fixed',
+                        bottom: 32,
+                        right: 32,
+                        width: 70,
+                        height: 70,
+                        background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                        boxShadow: '0 10px 25px rgba(245, 158, 11, 0.4)',
+                        '&:hover': {
+                            transform: 'scale(1.1) rotate(15deg)',
+                            transition: 'all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
+                        }
+                    }}
+                >
+                    <WbSunnyIcon sx={{ fontSize: 35, color: 'white' }} />
+                </Fab>
             </Box>
         </ThemeProvider>
     );
